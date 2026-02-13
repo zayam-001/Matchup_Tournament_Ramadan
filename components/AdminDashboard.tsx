@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TournamentFormat, SkillLevel, Tournament, RegistrationStatus, RoundRobinType, Team, Match } from '../types';
-import { createTournament, subscribeToTournaments, subscribeToTournament, updateTeamStatus, generateSchedule, assignTeamGroup, updateMatchDetails } from '../services/storage';
-import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database } from 'lucide-react';
+import { createTournament, deleteTournament, updateTournament, subscribeToTournaments, subscribeToTournament, updateTeamStatus, generateSchedule, assignTeamGroup, updateMatchDetails } from '../services/storage';
+import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -11,10 +11,26 @@ export const AdminDashboard: React.FC = () => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [activeTournament, setActiveTournament] = useState<Tournament | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Tournament | null>(null);
   
   // Wizard States
   const [isCreating, setIsCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [view, setView] = useState<'OVERVIEW' | 'GROUPS' | 'SCHEDULE' | 'KNOCKOUT'>('OVERVIEW');
+
+  // Session Check on Mount
+  useEffect(() => {
+    const session = localStorage.getItem('admin_session');
+    if (session) {
+        const { timestamp } = JSON.parse(session);
+        // 30 Minutes Expiry
+        if (Date.now() - timestamp < 30 * 60 * 1000) {
+            setIsAuthenticated(true);
+        } else {
+            localStorage.removeItem('admin_session');
+        }
+    }
+  }, []);
 
   useEffect(() => {
     if (isAuthenticated) {
@@ -36,9 +52,42 @@ export const AdminDashboard: React.FC = () => {
     e.preventDefault();
     if (loginEmail === 'zayam@test.com' && loginPassword === 'Test123!@#') {
         setIsAuthenticated(true);
+        localStorage.setItem('admin_session', JSON.stringify({ timestamp: Date.now() }));
     } else {
         alert("Invalid credentials. Please use the testing account.");
     }
+  };
+
+  const handleDeleteTournament = (e: React.MouseEvent, t: Tournament) => {
+      e.stopPropagation();
+      const teams = t.teams || [];
+      const acceptedTeams = teams.filter(team => team.status === RegistrationStatus.ACCEPTED).length;
+      
+      if (acceptedTeams >= 2) {
+          alert("Cannot delete tournament with 2 or more active teams.");
+          return;
+      }
+      setDeleteTarget(t);
+  };
+
+  const confirmDelete = async () => {
+      if (!deleteTarget) return;
+      try {
+          await deleteTournament(deleteTarget.id);
+          if (selectedTournamentId === deleteTarget.id) {
+             setSelectedTournamentId(null);
+          }
+          setDeleteTarget(null);
+      } catch (err) {
+          console.error("Delete failed:", err);
+          alert("Failed to delete tournament. Please try again.");
+      }
+  };
+
+  const handleEditTournament = (e: React.MouseEvent, t: Tournament) => {
+      e.stopPropagation();
+      setEditingId(t.id);
+      setIsCreating(true);
   };
 
   if (!isAuthenticated) {
@@ -50,12 +99,14 @@ export const AdminDashboard: React.FC = () => {
                 <input type="password" className="w-full bg-[#0A1628] border border-gray-700 rounded-xl p-3 text-white" value={loginPassword} onChange={e => setLoginPassword(e.target.value)} placeholder="••••••••" />
                 <button className="w-full bg-[#E67E50] text-white font-bold py-4 rounded-xl mt-4">Sign In</button>
             </form>
-            {/* Database reset button removed as config is now hardcoded */}
         </div>
     );
   }
 
-  if (isCreating) return <CreateTournamentWizard onCancel={() => setIsCreating(false)} onCreate={(id) => { setIsCreating(false); setSelectedTournamentId(id); }} />;
+  if (isCreating) {
+      const editData = editingId ? tournaments.find(t => t.id === editingId) : null;
+      return <CreateTournamentWizard initialData={editData} onCancel={() => { setIsCreating(false); setEditingId(null); }} onCreate={(id) => { setIsCreating(false); setSelectedTournamentId(id); setEditingId(null); }} />;
+  }
 
   if (!selectedTournamentId) {
       return (
@@ -66,12 +117,22 @@ export const AdminDashboard: React.FC = () => {
               </div>
               <div className="grid gap-4">
                 {tournaments.map(t => (
-                    <div key={t.id} onClick={() => setSelectedTournamentId(t.id)} className="bg-[#0F213A] p-6 rounded-xl border border-gray-800 cursor-pointer flex justify-between items-center hover:border-[#E67E50]">
-                        <div><h3 className="text-xl font-bold text-white">{t.name}</h3><div className="text-gray-400">{t.format.replace('_', ' ')} • {t.teams.length} Teams</div></div>
-                        <ChevronRight className="text-gray-600"/>
+                    <div key={t.id} className="bg-[#0F213A] p-6 rounded-xl border border-gray-800 flex justify-between items-center group">
+                        <div onClick={() => setSelectedTournamentId(t.id)} className="cursor-pointer flex-1">
+                            <h3 className="text-xl font-bold text-white group-hover:text-[#E67E50] transition-colors">{t.name}</h3>
+                            <div className="text-gray-400">{t.format.replace('_', ' ')} • {(t.teams || []).length} Teams</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                             <button onClick={(e) => handleEditTournament(e, t)} className="p-2 text-gray-500 hover:text-white"><Edit3 size={18}/></button>
+                             {(t.teams || []).filter(x => x.status === RegistrationStatus.ACCEPTED).length < 2 && (
+                                <button onClick={(e) => handleDeleteTournament(e, t)} className="p-2 text-gray-500 hover:text-red-500"><Trash2 size={18}/></button>
+                             )}
+                             <button onClick={() => setSelectedTournamentId(t.id)}><ChevronRight className="text-gray-600 group-hover:text-white"/></button>
+                        </div>
                     </div>
                 ))}
               </div>
+              <DeleteConfirmationModal target={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />
           </div>
       )
   }
@@ -80,9 +141,17 @@ export const AdminDashboard: React.FC = () => {
 
   return (
       <div className="pb-20">
-          <div className="flex items-center gap-4 mb-6">
-              <button onClick={() => setSelectedTournamentId(null)} className="text-gray-500 hover:text-white"><ChevronLeft/></button>
-              <h1 className="text-2xl font-bold text-white">{activeTournament.name}</h1>
+          <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center gap-4">
+                  <button onClick={() => setSelectedTournamentId(null)} className="text-gray-500 hover:text-white"><ChevronLeft/></button>
+                  <h1 className="text-2xl font-bold text-white">{activeTournament.name}</h1>
+              </div>
+              <div className="flex gap-2">
+                  <button onClick={(e) => handleEditTournament(e, activeTournament)} className="p-2 bg-gray-800 rounded-lg text-white hover:bg-gray-700"><Edit3 size={18}/></button>
+                  {(activeTournament.teams || []).filter(x => x.status === RegistrationStatus.ACCEPTED).length < 2 && (
+                       <button onClick={(e) => handleDeleteTournament(e, activeTournament)} className="p-2 bg-gray-800 rounded-lg text-red-400 hover:bg-red-900/20"><Trash2 size={18}/></button>
+                  )}
+              </div>
           </div>
           
           {/* Tabs */}
@@ -99,11 +168,47 @@ export const AdminDashboard: React.FC = () => {
           {view === 'GROUPS' && <GroupAssignmentTab tournament={activeTournament} />}
           {view === 'SCHEDULE' && <ScheduleTab tournament={activeTournament} />}
           {view === 'KNOCKOUT' && <KnockoutTab tournament={activeTournament} />}
+          
+          <DeleteConfirmationModal target={deleteTarget} onCancel={() => setDeleteTarget(null)} onConfirm={confirmDelete} />
       </div>
   );
 };
 
 // --- SUB-COMPONENTS ---
+
+const DeleteConfirmationModal = ({ target, onCancel, onConfirm }: any) => {
+    if (!target) return null;
+    return (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4 backdrop-blur-sm" onClick={onCancel}>
+            <div className="bg-[#0F213A] rounded-2xl w-full max-w-md border border-red-900/50 p-6 relative shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="flex flex-col items-center text-center">
+                    <div className="h-14 w-14 bg-red-500/10 rounded-full flex items-center justify-center text-red-500 mb-4">
+                        <AlertTriangle size={32} />
+                    </div>
+                    <h3 className="text-xl font-bold text-white mb-2">Delete Tournament?</h3>
+                    <p className="text-gray-400 text-sm mb-6">
+                        Are you sure you want to delete <span className="text-white font-bold">"{target.name}"</span>? 
+                        This action cannot be undone.
+                    </p>
+                    <div className="flex gap-3 w-full">
+                        <button 
+                            onClick={onCancel}
+                            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white font-medium py-3 rounded-xl transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={onConfirm}
+                            className="flex-1 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-xl transition-colors shadow-lg shadow-red-900/20"
+                        >
+                            Delete Forever
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const TabButton = ({ active, onClick, label, icon }: any) => (
     <button onClick={onClick} className={`px-4 py-2 rounded-lg flex items-center gap-2 whitespace-nowrap ${active ? 'bg-[#E67E50] text-white' : 'bg-[#0F213A] text-gray-400 border border-gray-800'}`}>
@@ -111,9 +216,12 @@ const TabButton = ({ active, onClick, label, icon }: any) => (
     </button>
 );
 
-const CreateTournamentWizard = ({ onCancel, onCreate }: any) => {
+const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
     const [step, setStep] = useState(1);
-    const [data, setData] = useState({
+    const [data, setData] = useState(initialData ? {
+        ...initialData,
+        courts: initialData.courts.join(', ')
+    } : {
         name: '', 
         format: TournamentFormat.SINGLE_ELIMINATION, 
         rrType: RoundRobinType.SINGLE, 
@@ -129,14 +237,20 @@ const CreateTournamentWizard = ({ onCancel, onCreate }: any) => {
         registrationDeadline: ''
     });
 
-    const handleCreate = async () => {
-        const id = await createTournament({ ...data, courts: data.courts.split(',').map(s => s.trim()) });
-        onCreate(id);
+    const handleCreateOrUpdate = async () => {
+        const payload = { ...data, courts: data.courts.split(',').map((s: string) => s.trim()) };
+        if (initialData) {
+            await updateTournament(initialData.id, payload);
+            onCreate(initialData.id);
+        } else {
+            const id = await createTournament(payload);
+            onCreate(id);
+        }
     };
 
     return (
         <div className="bg-[#0F213A] p-8 rounded-2xl border border-gray-800 max-w-2xl mx-auto">
-            <h2 className="text-2xl font-bold text-white mb-6">Create Tournament (Step {step}/2)</h2>
+            <h2 className="text-2xl font-bold text-white mb-6">{initialData ? 'Edit' : 'Create'} Tournament (Step {step}/2)</h2>
             {step === 1 ? (
                 <div className="space-y-4">
                     <Input label="Tournament Name" value={data.name} onChange={(v: string) => setData({...data, name: v})} />
@@ -191,7 +305,7 @@ const CreateTournamentWizard = ({ onCancel, onCreate }: any) => {
                      <Input label="Referee Passcode" value={data.refereePasscode} onChange={(v: string) => setData({...data, refereePasscode: v})} />
                      <div className="flex gap-4 mt-6">
                          <button onClick={() => setStep(1)} className="flex-1 bg-gray-700 text-white py-3 rounded-lg">Back</button>
-                         <button onClick={handleCreate} className="flex-1 bg-[#E67E50] text-white py-3 rounded-lg font-bold">Create</button>
+                         <button onClick={handleCreateOrUpdate} className="flex-1 bg-[#E67E50] text-white py-3 rounded-lg font-bold">{initialData ? 'Update' : 'Create'}</button>
                      </div>
                 </div>
             )}
@@ -219,9 +333,42 @@ const Input = ({ label, value, onChange, type="text", icon }: any) => (
     </div>
 );
 
+const TeamDetailCard: React.FC<{ team: Team, actions?: React.ReactNode }> = ({ team, actions }) => {
+    const [expanded, setExpanded] = useState(false);
+    return (
+        <div className="bg-[#0A1628] rounded-lg mb-2 overflow-hidden border border-gray-700/50 hover:border-[#E67E50]/50 transition-colors">
+            <div className="flex justify-between items-center p-3 cursor-pointer" onClick={() => setExpanded(!expanded)}>
+                <span className="text-white font-medium">{team.name}</span>
+                <div className="flex items-center gap-2">
+                    {actions}
+                    <ChevronRight size={16} className={`text-gray-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+                </div>
+            </div>
+            {expanded && (
+                <div className="p-3 bg-[#081220] border-t border-gray-800 text-sm space-y-3">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1">
+                            <div className="text-gray-500 text-xs uppercase font-bold">Player 1</div>
+                            <div className="flex items-center gap-2 text-white"><Users size={14}/> {team.player1.name}</div>
+                            <div className="flex items-center gap-2 text-gray-400"><Phone size={14}/> {team.player1.phone}</div>
+                            <div className="flex items-center gap-2 text-gray-400"><Mail size={14}/> {team.player1.email}</div>
+                        </div>
+                        <div className="space-y-1">
+                            <div className="text-gray-500 text-xs uppercase font-bold">Player 2</div>
+                            <div className="flex items-center gap-2 text-white"><Users size={14}/> {team.player2.name}</div>
+                            <div className="flex items-center gap-2 text-gray-400"><Phone size={14}/> {team.player2.phone}</div>
+                            <div className="flex items-center gap-2 text-gray-400"><Mail size={14}/> {team.player2.email}</div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
 const OverviewTab = ({ tournament }: { tournament: Tournament }) => {
-    const pending = tournament.teams.filter(t => t.status === RegistrationStatus.PENDING);
-    const accepted = tournament.teams.filter(t => t.status === RegistrationStatus.ACCEPTED);
+    const pending = (tournament.teams || []).filter(t => t.status === RegistrationStatus.PENDING);
+    const accepted = (tournament.teams || []).filter(t => t.status === RegistrationStatus.ACCEPTED);
     
     return (
         <div className="space-y-8">
@@ -239,38 +386,91 @@ const OverviewTab = ({ tournament }: { tournament: Tournament }) => {
                 <div className="bg-[#0F213A] p-6 rounded-2xl border border-gray-800">
                     <h3 className="font-bold text-white mb-4">Pending ({pending.length})</h3>
                     {pending.map(t => (
-                        <div key={t.id} className="flex justify-between items-center bg-[#0A1628] p-3 rounded-lg mb-2">
-                            <span className="text-white">{t.name}</span>
-                            <div className="flex gap-2">
-                                <button onClick={() => updateTeamStatus(tournament.id, t.id, 'ACCEPTED')} className="p-1 bg-green-500/20 text-green-500 rounded hover:bg-green-500/30 transition-colors"><Check size={16}/></button>
-                                <button onClick={() => updateTeamStatus(tournament.id, t.id, 'REJECTED')} className="p-1 bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"><X size={16}/></button>
-                            </div>
-                        </div>
+                        <TeamDetailCard 
+                            key={t.id} 
+                            team={t} 
+                            actions={
+                                <>
+                                    <button onClick={(e) => { e.stopPropagation(); updateTeamStatus(tournament.id, t.id, 'ACCEPTED'); }} className="p-1 bg-green-500/20 text-green-500 rounded hover:bg-green-500/30 transition-colors"><Check size={16}/></button>
+                                    <button onClick={(e) => { e.stopPropagation(); updateTeamStatus(tournament.id, t.id, 'REJECTED'); }} className="p-1 bg-red-500/20 text-red-500 rounded hover:bg-red-500/30 transition-colors"><X size={16}/></button>
+                                </>
+                            } 
+                        />
                     ))}
                     {pending.length === 0 && <p className="text-gray-500 text-sm">No pending registrations.</p>}
                 </div>
                 <div className="bg-[#0F213A] p-6 rounded-2xl border border-gray-800">
                     <h3 className="font-bold text-white mb-4">Accepted ({accepted.length})</h3>
                     {accepted.map(t => (
-                        <div key={t.id} className="flex justify-between items-center bg-[#0A1628] p-3 rounded-lg mb-2">
-                            <span className="text-white">{t.name}</span>
-                            <span className="text-xs text-green-500 bg-green-500/10 px-2 py-1 rounded">Ready</span>
-                        </div>
+                        <TeamDetailCard 
+                            key={t.id} 
+                            team={t} 
+                            actions={<span className="text-xs text-green-500 bg-green-500/10 px-2 py-1 rounded">Ready</span>} 
+                        />
                     ))}
                      {accepted.length === 0 && <p className="text-gray-500 text-sm">No teams accepted yet.</p>}
                 </div>
             </div>
 
-            {/* Standings Section for Admin */}
+            {/* Standings Section for Round Robin */}
             {tournament.format === TournamentFormat.ROUND_ROBIN && (
                  <div>
                      <h3 className="text-xl font-bold text-white mb-4">Current Standings</h3>
-                     <StandingsTable teams={tournament.teams} tournament={tournament} />
+                     <StandingsTable teams={tournament.teams || []} tournament={tournament} />
                  </div>
+            )}
+             {/* Visual Bracket for Elimination Formats */}
+            {(tournament.format === TournamentFormat.SINGLE_ELIMINATION || tournament.format === TournamentFormat.DOUBLE_ELIMINATION) && (
+                <div>
+                    <h3 className="text-xl font-bold text-white mb-4">Tournament Bracket</h3>
+                    <BracketView matches={tournament.matches || []} teams={tournament.teams || []} />
+                </div>
             )}
         </div>
     )
 }
+
+const BracketView = ({ matches, teams }: any) => {
+    // Basic Bracket Visualization
+    // Group matches by round
+    const rounds: Record<string, Match[]> = {};
+    matches.forEach((m: Match) => {
+        if (!rounds[m.round]) rounds[m.round] = [];
+        rounds[m.round].push(m);
+    });
+
+    const roundKeys = Object.keys(rounds).sort((a,b) => parseInt(a) - parseInt(b));
+    if (roundKeys.length === 0) return <p className="text-gray-500">No bracket generated yet.</p>;
+
+    return (
+        <div className="overflow-x-auto pb-4">
+            <div className="flex gap-8 min-w-max">
+                {roundKeys.map(r => (
+                    <div key={r} className="flex flex-col justify-around gap-4 min-w-[200px]">
+                        <h4 className="text-center text-[#E67E50] font-bold text-sm mb-2">{rounds[r][0].roundName}</h4>
+                        {rounds[r].map(m => {
+                             const t1 = teams.find((t: any) => t.id === m.team1Id);
+                             const t2 = teams.find((t: any) => t.id === m.team2Id);
+                             return (
+                                 <div key={m.id} className="bg-[#0A1628] border border-gray-700 rounded p-2 text-xs relative">
+                                     <div className={`p-1 mb-1 rounded flex justify-between ${m.winnerTeamId === m.team1Id ? 'bg-green-900/30 text-green-400' : 'text-gray-300'}`}>
+                                         <span>{t1?.name || 'TBD'}</span>
+                                         {m.status === 'COMPLETED' && <span className="font-bold">{m.score.p1Sets}</span>}
+                                     </div>
+                                     <div className={`p-1 rounded flex justify-between ${m.winnerTeamId === m.team2Id ? 'bg-green-900/30 text-green-400' : 'text-gray-300'}`}>
+                                         <span>{t2?.name || 'TBD'}</span>
+                                         {m.status === 'COMPLETED' && <span className="font-bold">{m.score.p2Sets}</span>}
+                                     </div>
+                                     {/* Connector lines could go here with SVG but simple flex is safer for now */}
+                                 </div>
+                             )
+                        })}
+                    </div>
+                ))}
+            </div>
+        </div>
+    )
+};
 
 const StandingsTable = ({ teams, tournament }: any) => {
     // Check if groups exist
@@ -319,7 +519,7 @@ const StandingsTable = ({ teams, tournament }: any) => {
 };
 
 const GroupAssignmentTab = ({ tournament }: { tournament: Tournament }) => {
-    const teams = tournament.teams.filter(t => t.status === RegistrationStatus.ACCEPTED);
+    const teams = (tournament.teams || []).filter(t => t.status === RegistrationStatus.ACCEPTED);
     const groupSize = tournament.groupSize || 4;
     const numGroups = Math.ceil(teams.length / groupSize);
     
@@ -358,7 +558,10 @@ const ScheduleTab = ({ tournament }: { tournament: Tournament }) => {
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
 
     const handleGenerate = async () => {
-        if (tournament.matches.length > 0 && !window.confirm("Overwrite existing schedule?")) return;
+        if ((tournament.matches || []).length > 0) {
+             const confirm = window.confirm("Existing matches found. 'OK' to overwite/reset schedule, 'Cancel' to keep existing (useful if manually adding next rounds).");
+             if (!confirm) return;
+        }
         await generateSchedule(tournament.id);
     };
 
@@ -373,15 +576,17 @@ const ScheduleTab = ({ tournament }: { tournament: Tournament }) => {
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between">
+            <div className="flex flex-col md:flex-row justify-between gap-4">
                 <h3 className="text-xl font-bold text-white">Match Schedule</h3>
-                <button onClick={handleGenerate} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2"><RefreshCcw size={16}/> Generate</button>
+                <div className="flex gap-2">
+                    <button onClick={handleGenerate} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2"><RefreshCcw size={16}/> Auto-Schedule</button>
+                </div>
             </div>
 
             <div className="grid gap-3">
-                {tournament.matches.sort((a,b) => a.scheduledTime.localeCompare(b.scheduledTime)).map(m => {
-                    const t1 = tournament.teams.find(t => t.id === m.team1Id)?.name || 'TBD';
-                    const t2 = tournament.teams.find(t => t.id === m.team2Id)?.name || 'TBD';
+                {(tournament.matches || []).sort((a,b) => a.scheduledTime.localeCompare(b.scheduledTime)).map(m => {
+                    const t1 = (tournament.teams || []).find(t => t.id === m.team1Id)?.name || 'TBD';
+                    const t2 = (tournament.teams || []).find(t => t.id === m.team2Id)?.name || 'TBD';
                     return (
                         <div key={m.id} className="bg-[#0F213A] p-4 rounded-xl border border-gray-800 flex flex-col md:flex-row justify-between items-center gap-4">
                             <div className="flex-1">

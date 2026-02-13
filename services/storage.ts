@@ -5,6 +5,7 @@ import {
     doc, 
     addDoc, 
     updateDoc, 
+    deleteDoc,
     onSnapshot, 
     getDoc, 
     query, 
@@ -92,11 +93,12 @@ const parseDependency = (sourceStr: string): MatchDependency | undefined => {
 
 export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[] => {
   const acceptedTeams = t.teams.filter(tm => tm.status === RegistrationStatus.ACCEPTED);
-  if (acceptedTeams.length < 2 && (!knockoutConfig || knockoutConfig.length === 0)) return [];
-
+  // Allow schedule generation even with 0 teams if manually triggered to reset/clear or if config provided
+  
   let matches: Match[] = knockoutConfig ? [...(t.matches || [])] : [];
   
-  if (matches.length === 0 && (!knockoutConfig || knockoutConfig.length === 0)) {
+  // If no manual config, generate automatic structure
+  if ((!knockoutConfig || knockoutConfig.length === 0)) {
       let timeOffset = 0;
       if (t.format === TournamentFormat.ROUND_ROBIN) {
         const groups: Record<string, Team[]> = {};
@@ -124,40 +126,43 @@ export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[
             }
         });
       } else {
-          // Bracket Logic
-          const rounds = Math.ceil(Math.log2(acceptedTeams.length));
-          const totalBracketSize = Math.pow(2, rounds); 
-          let currentRoundTeams: (string | undefined)[] = [...acceptedTeams.map(t => t.id)].sort(() => 0.5 - Math.random());
-          while (currentRoundTeams.length < totalBracketSize) currentRoundTeams.push(undefined);
-          
-          let previousRoundMatches: Match[] = [];
-          for (let r = 1; r <= rounds; r++) {
-              let roundName = r === rounds ? "Grand Final" : r === rounds - 1 ? "Semi Final" : r === rounds - 2 ? "Quarter Final" : `Round of ${Math.pow(2, rounds - r + 1)}`;
-              const matchesInRound = Math.pow(2, rounds - r);
-              const currentRoundObjs: Match[] = [];
-              for (let m = 0; m < matchesInRound; m++) {
-                  let t1, t2, dep1, dep2;
-                  if (r === 1) {
-                      t1 = currentRoundTeams[m * 2];
-                      t2 = currentRoundTeams[m * 2 + 1];
-                  } else {
-                      const m1 = previousRoundMatches[m * 2];
-                      const m2 = previousRoundMatches[m * 2 + 1];
-                      dep1 = { sourceType: 'MATCH_WINNER', sourceId: m1.id };
-                      dep2 = { sourceType: 'MATCH_WINNER', sourceId: m2.id };
+          // Bracket Logic (Single/Double Elim)
+          // Always generate full tree if teams exist
+          if (acceptedTeams.length >= 2) {
+              const rounds = Math.ceil(Math.log2(acceptedTeams.length));
+              const totalBracketSize = Math.pow(2, rounds); 
+              let currentRoundTeams: (string | undefined)[] = [...acceptedTeams.map(t => t.id)].sort(() => 0.5 - Math.random());
+              while (currentRoundTeams.length < totalBracketSize) currentRoundTeams.push(undefined);
+              
+              let previousRoundMatches: Match[] = [];
+              for (let r = 1; r <= rounds; r++) {
+                  let roundName = r === rounds ? "Grand Final" : r === rounds - 1 ? "Semi Final" : r === rounds - 2 ? "Quarter Final" : `Round of ${Math.pow(2, rounds - r + 1)}`;
+                  const matchesInRound = Math.pow(2, rounds - r);
+                  const currentRoundObjs: Match[] = [];
+                  for (let m = 0; m < matchesInRound; m++) {
+                      let t1, t2, dep1, dep2;
+                      if (r === 1) {
+                          t1 = currentRoundTeams[m * 2];
+                          t2 = currentRoundTeams[m * 2 + 1];
+                      } else {
+                          const m1 = previousRoundMatches[m * 2];
+                          const m2 = previousRoundMatches[m * 2 + 1];
+                          dep1 = { sourceType: 'MATCH_WINNER', sourceId: m1.id };
+                          dep2 = { sourceType: 'MATCH_WINNER', sourceId: m2.id };
+                      }
+                      const newMatch = createMatchObject(t.id, roundName, r, 'BRACKET', timeOffset, t.courts[0] || "Court 1", t1, t2);
+                      if (dep1) newMatch.team1Dependency = dep1 as MatchDependency;
+                      if (dep2) newMatch.team2Dependency = dep2 as MatchDependency;
+                      currentRoundObjs.push(newMatch);
+                      matches.push(newMatch);
+                      timeOffset++;
+                      if (r > 1) {
+                          previousRoundMatches[m * 2].nextMatchId = newMatch.id;
+                          previousRoundMatches[m * 2 + 1].nextMatchId = newMatch.id;
+                      }
                   }
-                  const newMatch = createMatchObject(t.id, roundName, r, 'BRACKET', timeOffset, t.courts[0] || "Court 1", t1, t2);
-                  if (dep1) newMatch.team1Dependency = dep1 as MatchDependency;
-                  if (dep2) newMatch.team2Dependency = dep2 as MatchDependency;
-                  currentRoundObjs.push(newMatch);
-                  matches.push(newMatch);
-                  timeOffset++;
-                  if (r > 1) {
-                      previousRoundMatches[m * 2].nextMatchId = newMatch.id;
-                      previousRoundMatches[m * 2 + 1].nextMatchId = newMatch.id;
-                  }
+                  previousRoundMatches = currentRoundObjs;
               }
-              previousRoundMatches = currentRoundObjs;
           }
       }
   } 
@@ -174,7 +179,7 @@ export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[
   return matches;
 };
 
-const advanceBracket = (allMatches: Match[], completedMatch: Match, winnerId: string): Match[] => {
+export const advanceBracket = (allMatches: Match[], completedMatch: Match, winnerId: string): Match[] => {
     return allMatches.map(m => {
         if (completedMatch.nextMatchId && m.id === completedMatch.nextMatchId) {
              if (m.team1Dependency?.sourceId === completedMatch.id) return { ...m, team1Id: winnerId };
@@ -261,6 +266,27 @@ export const createTournament = async (t: any) => {
         mockTournaments = [newT, ...mockTournaments];
         notifyMock();
         return newT.id;
+    }
+};
+
+export const deleteTournament = async (tId: string) => {
+    if (db) {
+        await deleteDoc(doc(db, "tournaments", tId));
+    } else {
+        mockTournaments = mockTournaments.filter(t => t.id !== tId);
+        notifyMock();
+    }
+};
+
+export const updateTournament = async (tId: string, data: Partial<Tournament>) => {
+    if (db) {
+        await updateDoc(doc(db, "tournaments", tId), data);
+    } else {
+        const t = mockTournaments.find(x => x.id === tId);
+        if (t) {
+            Object.assign(t, data);
+            notifyMock();
+        }
     }
 };
 
