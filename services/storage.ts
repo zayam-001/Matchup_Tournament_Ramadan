@@ -53,6 +53,15 @@ try {
 export const isConfigured = !isMock;
 
 // ------------------------------------------------------------------
+// UTILS
+// ------------------------------------------------------------------
+// Firestore crashes if 'undefined' is passed in an object. 
+// This helper strips undefined fields and converts undefined in arrays to null (via JSON behavior).
+const cleanData = (data: any) => {
+    return JSON.parse(JSON.stringify(data));
+};
+
+// ------------------------------------------------------------------
 // MOCK STORAGE STATE (Fallback)
 // ------------------------------------------------------------------
 let mockTournaments: Tournament[] = [];
@@ -92,11 +101,13 @@ const parseDependency = (sourceStr: string): MatchDependency | undefined => {
 };
 
 export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[] => {
-  const acceptedTeams = t.teams.filter(tm => tm.status === RegistrationStatus.ACCEPTED);
-  // Allow schedule generation even with 0 teams if manually triggered to reset/clear or if config provided
+  const acceptedTeams = (t.teams || []).filter(tm => tm.status === RegistrationStatus.ACCEPTED);
   
   let matches: Match[] = knockoutConfig ? [...(t.matches || [])] : [];
   
+  // Safe court access
+  const availableCourts = (t.courts && t.courts.length > 0) ? t.courts : ["Court 1"];
+
   // If no manual config, generate automatic structure
   if ((!knockoutConfig || knockoutConfig.length === 0)) {
       let timeOffset = 0;
@@ -117,7 +128,7 @@ export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[
                 for (let i = 0; i < groupTeams.length; i++) {
                     for (let j = i + 1; j < groupTeams.length; j++) {
                         matches.push({
-                            ...createMatchObject(t.id, `Group ${gId} - R${l+1}`, 1, 'GROUP', timeOffset, t.courts[matches.length % t.courts.length] || "Court 1", groupTeams[i].id, groupTeams[j].id),
+                            ...createMatchObject(t.id, `Group ${gId} - R${l+1}`, 1, 'GROUP', timeOffset, availableCourts[matches.length % availableCourts.length], groupTeams[i].id, groupTeams[j].id),
                             group: gId
                         });
                         timeOffset++;
@@ -150,7 +161,7 @@ export const calculateSchedule = (t: Tournament, knockoutConfig?: any[]): Match[
                           dep1 = { sourceType: 'MATCH_WINNER', sourceId: m1.id };
                           dep2 = { sourceType: 'MATCH_WINNER', sourceId: m2.id };
                       }
-                      const newMatch = createMatchObject(t.id, roundName, r, 'BRACKET', timeOffset, t.courts[0] || "Court 1", t1, t2);
+                      const newMatch = createMatchObject(t.id, roundName, r, 'BRACKET', timeOffset, availableCourts[0], t1, t2);
                       if (dep1) newMatch.team1Dependency = dep1 as MatchDependency;
                       if (dep2) newMatch.team2Dependency = dep2 as MatchDependency;
                       currentRoundObjs.push(newMatch);
@@ -259,7 +270,7 @@ export const createTournament = async (t: any) => {
         createdAt: new Date().toISOString() 
     };
     if (db) {
-        const docRef = await addDoc(collection(db, "tournaments"), newT);
+        const docRef = await addDoc(collection(db, "tournaments"), cleanData(newT));
         return docRef.id;
     } else {
         newT.id = genId();
@@ -280,7 +291,7 @@ export const deleteTournament = async (tId: string) => {
 
 export const updateTournament = async (tId: string, data: Partial<Tournament>) => {
     if (db) {
-        await updateDoc(doc(db, "tournaments", tId), data);
+        await updateDoc(doc(db, "tournaments", tId), cleanData(data));
     } else {
         const t = mockTournaments.find(x => x.id === tId);
         if (t) {
@@ -297,7 +308,7 @@ export const registerTeam = async (tId: string, team: any) => {
         const snap = await getDoc(tRef);
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
-            await updateDoc(tRef, { teams: [...tData.teams, newTeam] });
+            await updateDoc(tRef, cleanData({ teams: [...tData.teams, newTeam] }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -312,7 +323,7 @@ export const updateTeamStatus = async (tId: string, teamId: string, status: stri
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
             const updatedTeams = tData.teams.map(tm => tm.id === teamId ? { ...tm, status: status as RegistrationStatus } : tm);
-            await updateDoc(tRef, { teams: updatedTeams });
+            await updateDoc(tRef, cleanData({ teams: updatedTeams }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -330,7 +341,7 @@ export const assignTeamGroup = async (tId: string, teamId: string, groupId: stri
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
             const updatedTeams = tData.teams.map(tm => tm.id === teamId ? { ...tm, groupId } : tm);
-            await updateDoc(tRef, { teams: updatedTeams });
+            await updateDoc(tRef, cleanData({ teams: updatedTeams }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -348,7 +359,7 @@ export const generateSchedule = async (tId: string, knockoutConfig?: any[]) => {
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
             const matches = calculateSchedule(tData, knockoutConfig);
-            await updateDoc(tRef, { matches });
+            await updateDoc(tRef, cleanData({ matches }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -366,7 +377,7 @@ export const updateMatchDetails = async (tId: string, mId: string, updates: Part
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
             const updatedMatches = tData.matches.map(m => m.id === mId ? { ...m, ...updates } : m);
-            await updateDoc(tRef, { matches: updatedMatches });
+            await updateDoc(tRef, cleanData({ matches: updatedMatches }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -392,7 +403,7 @@ export const updateMatchScore = async (tId: string, mId: string, newScore: Score
                 updatedMatches = advanceBracket(updatedMatches, match, winnerId);
             }
             const updatedTeams = calculateStats(t.teams, updatedMatches, t.format);
-            await updateDoc(tRef, { matches: updatedMatches, teams: updatedTeams });
+            await updateDoc(tRef, cleanData({ matches: updatedMatches, teams: updatedTeams }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);
@@ -420,7 +431,7 @@ export const addRefereeTag = async (tId: string, mId: string, tag: string) => {
         if (snap.exists()) {
             const tData = snap.data() as Tournament;
             const updatedMatches = tData.matches.map(m => m.id === mId ? { ...m, refereeNotes: [...(m.refereeNotes || []), tag] } : m);
-            await updateDoc(tRef, { matches: updatedMatches });
+            await updateDoc(tRef, cleanData({ matches: updatedMatches }));
         }
     } else {
         const t = mockTournaments.find(x => x.id === tId);

@@ -88,6 +88,12 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
                  <div className="hidden md:block w-1 h-1 bg-gray-700 rounded-full"></div>
                  <div className="flex items-center gap-4">
                     <button 
+                        onClick={() => onTabChange('privacy')}
+                        className="hover:text-white transition-colors"
+                    >
+                        Privacy Policy
+                    </button>
+                    <button 
                         onClick={() => setShowOrganizerForm(true)}
                         className="hover:text-[#E67E50] transition-colors"
                     >

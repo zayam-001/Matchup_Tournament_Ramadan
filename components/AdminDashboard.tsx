@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { TournamentFormat, SkillLevel, Tournament, RegistrationStatus, RoundRobinType, Team, Match } from '../types';
 import { createTournament, deleteTournament, updateTournament, subscribeToTournaments, subscribeToTournament, updateTeamStatus, generateSchedule, assignTeamGroup, updateMatchDetails } from '../services/storage';
-import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle } from 'lucide-react';
+import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle, Loader2 } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -556,13 +556,23 @@ const GroupAssignmentTab = ({ tournament }: { tournament: Tournament }) => {
 
 const ScheduleTab = ({ tournament }: { tournament: Tournament }) => {
     const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+    const [generating, setGenerating] = useState(false);
 
     const handleGenerate = async () => {
         if ((tournament.matches || []).length > 0) {
              const confirm = window.confirm("Existing matches found. 'OK' to overwite/reset schedule, 'Cancel' to keep existing (useful if manually adding next rounds).");
              if (!confirm) return;
         }
-        await generateSchedule(tournament.id);
+        
+        setGenerating(true);
+        try {
+            await generateSchedule(tournament.id);
+        } catch(e) {
+            console.error(e);
+            alert("Failed to generate schedule. Ensure you have accepted teams.");
+        } finally {
+            setGenerating(false);
+        }
     };
 
     const handleSaveEdit = async () => {
@@ -579,7 +589,10 @@ const ScheduleTab = ({ tournament }: { tournament: Tournament }) => {
             <div className="flex flex-col md:flex-row justify-between gap-4">
                 <h3 className="text-xl font-bold text-white">Match Schedule</h3>
                 <div className="flex gap-2">
-                    <button onClick={handleGenerate} className="bg-amber-600 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2"><RefreshCcw size={16}/> Auto-Schedule</button>
+                    <button onClick={handleGenerate} disabled={generating} className="bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">
+                        {generating ? <Loader2 size={16} className="animate-spin"/> : <RefreshCcw size={16}/>} 
+                        {generating ? 'Generating...' : 'Auto-Schedule'}
+                    </button>
                 </div>
             </div>
 
@@ -601,6 +614,11 @@ const ScheduleTab = ({ tournament }: { tournament: Tournament }) => {
                         </div>
                     )
                 })}
+                {(tournament.matches || []).length === 0 && (
+                    <div className="text-center py-10 text-gray-500 border border-dashed border-gray-800 rounded-xl">
+                        No matches scheduled yet. Use Auto-Schedule to generate.
+                    </div>
+                )}
             </div>
 
             {/* Edit Modal */}
