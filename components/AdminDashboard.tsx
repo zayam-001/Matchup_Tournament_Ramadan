@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { TournamentFormat, SkillLevel, Tournament, RegistrationStatus, RoundRobinType, Team, Match } from '../types';
 import { createTournament, deleteTournament, updateTournament, subscribeToTournaments, subscribeToTournament, updateTeamStatus, generateSchedule, assignTeamGroup, updateMatchDetails } from '../services/storage';
-import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle, Loader2 } from 'lucide-react';
+import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle, Loader2, Camera, Image as ImageIcon } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -218,9 +218,11 @@ const TabButton = ({ active, onClick, label, icon }: any) => (
 
 const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
     const [step, setStep] = useState(1);
+    const fileInputRef = useRef<HTMLInputElement>(null);
     const [data, setData] = useState(initialData ? {
         ...initialData,
-        courts: initialData.courts.join(', ')
+        courts: initialData.courts.join(', '),
+        sponsors: initialData.sponsors || []
     } : {
         name: '', 
         format: TournamentFormat.SINGLE_ELIMINATION, 
@@ -234,7 +236,9 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
         organizer: '',
         refereePasscode: '1234', 
         courts: 'Court 1', 
-        registrationDeadline: ''
+        registrationDeadline: '',
+        prizeMoney: 1000,
+        sponsors: [] as string[]
     });
 
     const handleCreateOrUpdate = async () => {
@@ -246,6 +250,25 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
             const id = await createTournament(payload);
             onCreate(id);
         }
+    };
+
+    const handleSponsorUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const result = e.target?.result as string;
+                setData((prev: any) => ({...prev, sponsors: [...prev.sponsors, result]}));
+            };
+            reader.readAsDataURL(file);
+        }
+    };
+
+    const removeSponsor = (index: number) => {
+        setData((prev: any) => ({
+            ...prev,
+            sponsors: prev.sponsors.filter((_: any, i: number) => i !== index)
+        }));
     };
 
     return (
@@ -280,6 +303,19 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
                             )}
                         </div>
                     )}
+                    
+                    {/* Skill Level Selection */}
+                     <div>
+                        <label className="block text-gray-400 text-sm mb-1">Skill Level</label>
+                        <select className="w-full bg-[#0A1628] p-3 rounded-lg text-white border border-gray-700" value={data.skillLevel} onChange={(e) => setData({...data, skillLevel: e.target.value as any})}>
+                            <option value="NEWCOMER">Newcomer</option>
+                            <option value="BEGINNER">Beginner</option>
+                            <option value="INTERMEDIATE">Intermediate</option>
+                            <option value="ADVANCED">Advanced</option>
+                            <option value="PROFESSIONAL">Professional</option>
+                        </select>
+                    </div>
+
                     <button onClick={() => setStep(2)} className="w-full bg-[#E67E50] text-white py-3 rounded-lg mt-4 font-bold">Next</button>
                 </div>
             ) : (
@@ -294,15 +330,43 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
                              </select>
                          </div>
                      </div>
-                     <Input 
-                        label="Entry Fee" 
-                        type="number" 
-                        value={data.entryFee} 
-                        onChange={(v: string) => setData({...data, entryFee: parseInt(v)})} 
-                        icon={data.currency === 'USD' ? <DollarSign size={16}/> : <span className="text-xs font-bold text-gray-500 uppercase">Rs</span>} 
-                     />
+                     <div className="grid grid-cols-2 gap-4">
+                        <Input 
+                            label="Entry Fee" 
+                            type="number" 
+                            value={data.entryFee} 
+                            onChange={(v: string) => setData({...data, entryFee: parseInt(v)})} 
+                            icon={data.currency === 'USD' ? <DollarSign size={16}/> : <span className="text-xs font-bold text-gray-500 uppercase">Rs</span>} 
+                        />
+                        <Input 
+                            label="Prize Pool" 
+                            type="number" 
+                            value={data.prizeMoney} 
+                            onChange={(v: string) => setData({...data, prizeMoney: parseInt(v)})} 
+                            icon={data.currency === 'USD' ? <DollarSign size={16}/> : <span className="text-xs font-bold text-gray-500 uppercase">Rs</span>} 
+                        />
+                     </div>
                      <Input label="Courts (comma sep)" value={data.courts} onChange={(v: string) => setData({...data, courts: v})} />
                      <Input label="Referee Passcode" value={data.refereePasscode} onChange={(v: string) => setData({...data, refereePasscode: v})} />
+                     
+                     {/* Sponsor Upload Section */}
+                     <div className="bg-[#0A1628] p-4 rounded-xl border border-gray-700">
+                         <label className="block text-gray-400 text-sm mb-2 font-bold uppercase">Sponsor Logos</label>
+                         <div className="flex flex-wrap gap-2 mb-3">
+                             {data.sponsors.map((src: string, i: number) => (
+                                 <div key={i} className="relative w-16 h-16 bg-white rounded-lg flex items-center justify-center p-1 border border-gray-600">
+                                     <img src={src} className="max-w-full max-h-full object-contain" />
+                                     <button onClick={() => removeSponsor(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"><X size={12}/></button>
+                                 </div>
+                             ))}
+                             <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 border border-dashed border-gray-500 rounded-lg flex items-center justify-center text-gray-500 hover:text-white hover:border-[#E67E50] transition-colors">
+                                 <Plus size={24}/>
+                             </button>
+                         </div>
+                         <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleSponsorUpload} />
+                         <p className="text-xs text-gray-500">Upload square or rectangular logos (PNG/JPG).</p>
+                     </div>
+
                      <div className="flex gap-4 mt-6">
                          <button onClick={() => setStep(1)} className="flex-1 bg-gray-700 text-white py-3 rounded-lg">Back</button>
                          <button onClick={handleCreateOrUpdate} className="flex-1 bg-[#E67E50] text-white py-3 rounded-lg font-bold">{initialData ? 'Update' : 'Create'}</button>
@@ -380,6 +444,12 @@ const OverviewTab = ({ tournament }: { tournament: Tournament }) => {
                     {tournament.entryFee}
                 </div>
                 {tournament.organizer && <div className="flex items-center gap-2"><Users size={16} className="text-[#E67E50]"/> Org: {tournament.organizer}</div>}
+                {tournament.sponsors && tournament.sponsors.length > 0 && (
+                    <div className="flex items-center gap-2 pl-4 border-l border-gray-700">
+                        <ImageIcon size={16} className="text-[#E67E50]" />
+                        <span>{tournament.sponsors.length} Sponsors</span>
+                    </div>
+                )}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">

@@ -118,6 +118,7 @@ export interface Tournament {
   registrationDeadline: string;
   teams: Team[];
   matches: Match[];
+  sponsors?: string[]; // Array of base64 logos
   status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
 }
 

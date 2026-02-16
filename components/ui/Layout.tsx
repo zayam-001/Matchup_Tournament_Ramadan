@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trophy, Activity, Users, LogOut, MessageCircle, ClipboardList, Lock, ExternalLink } from 'lucide-react';
+import { Trophy, Activity, Users, LogOut, MessageCircle, ClipboardList, Lock, ExternalLink, Eye } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -42,8 +42,8 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
         {/* Navigation Items */}
         <div className="flex flex-row md:flex-col w-full justify-around md:justify-start gap-1 md:gap-2">
           <NavItem 
-            icon={<Activity />} 
-            label="Live" 
+            icon={<Eye />} 
+            label="Spectator" 
             active={activeTab === 'live'} 
             onClick={() => onTabChange('live')} 
           />
@@ -74,7 +74,7 @@ export const Layout: React.FC<LayoutProps> = ({ children, activeTab, onTabChange
              <span className="text-xl font-bold text-white">Match Up</span>
          </div>
 
-        <div className="flex-1 p-4 md:p-8 max-w-7xl mx-auto w-full">
+        <div className="flex-1 p-0 md:p-8 max-w-7xl mx-auto w-full">
           {children}
         </div>
 

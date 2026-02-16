@@ -55,10 +55,47 @@ export const isConfigured = !isMock;
 // ------------------------------------------------------------------
 // UTILS
 // ------------------------------------------------------------------
-// Firestore crashes if 'undefined' is passed in an object. 
-// This helper strips undefined fields and converts undefined in arrays to null (via JSON behavior).
+// Robust Deep Clone to handle circular refs and strip undefined
 const cleanData = (data: any) => {
-    return JSON.parse(JSON.stringify(data));
+    const seen = new WeakMap();
+
+    const clone = (obj: any): any => {
+        // Handle primitives and null
+        if (obj === null || typeof obj !== 'object') {
+            return obj === undefined ? null : obj;
+        }
+
+        // Handle specific types
+        if (obj instanceof Date) return obj.toISOString();
+        if (obj instanceof RegExp) return obj.toString();
+
+        // Detect Cycles
+        if (seen.has(obj)) {
+            return null; // Break cycle by returning null
+        }
+        seen.set(obj, true);
+
+        // Handle Arrays
+        if (Array.isArray(obj)) {
+            return obj.map(item => clone(item));
+        }
+
+        // Handle Objects
+        const output: any = {};
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                const val = clone(obj[key]);
+                // Firestore doesn't like undefined, we converted it to null in base case if explicit
+                // But if it's a property, let's keep it if it's not undefined
+                if (val !== undefined) {
+                    output[key] = val;
+                }
+            }
+        }
+        return output;
+    };
+
+    return clone(data);
 };
 
 // ------------------------------------------------------------------
@@ -69,10 +106,12 @@ const listeners: ((data: Tournament[]) => void)[] = [];
 const tournamentListeners: {id: string, cb: (data: Tournament | null) => void}[] = [];
 
 const notifyMock = () => {
-    listeners.forEach(l => l(JSON.parse(JSON.stringify(mockTournaments))));
+    // Ensure mock data broadcast is clean
+    const safeData = cleanData(mockTournaments);
+    listeners.forEach(l => l(safeData));
     tournamentListeners.forEach(tl => {
-        const t = mockTournaments.find(tour => tour.id === tl.id);
-        tl.cb(t ? JSON.parse(JSON.stringify(t)) : null);
+        const t = safeData.find((tour: Tournament) => tour.id === tl.id);
+        tl.cb(t ? t : null);
     });
 };
 
@@ -235,7 +274,8 @@ export const subscribeToTournaments = (cb: (data: Tournament[]) => void) => {
         });
     } else {
         // Mock
-        cb(JSON.parse(JSON.stringify(mockTournaments)));
+        const safeData = cleanData(mockTournaments);
+        cb(safeData);
         listeners.push(cb);
         return () => { const idx = listeners.indexOf(cb); if (idx > -1) listeners.splice(idx, 1); };
     }
@@ -254,7 +294,7 @@ export const subscribeToTournament = (id: string, cb: (data: Tournament | null) 
     } else {
         // Mock
         const t = mockTournaments.find(x => x.id === id) || null;
-        cb(t ? JSON.parse(JSON.stringify(t)) : null);
+        cb(t ? cleanData(t) : null);
         const listener = { id, cb };
         tournamentListeners.push(listener);
         return () => { const idx = tournamentListeners.indexOf(listener); if (idx > -1) tournamentListeners.splice(idx, 1); };
