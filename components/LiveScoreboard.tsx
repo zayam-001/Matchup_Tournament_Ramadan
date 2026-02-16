@@ -162,7 +162,7 @@ const TournamentList = ({tournaments, onSelect}: any) => (
             
             <div className="grid gap-6">
                 {tournaments.map((t: Tournament) => (
-                    <button key={t.id} onClick={() => onSelect(t.id)} className="bg-[#0F213A] p-1 w-full rounded-3xl border border-gray-800 hover:border-[#E67E50] group transition-all overflow-hidden shadow-2xl">
+                    <button key={t.id} onClick={() => onSelect(t.id)} className="text-left bg-[#0F213A] p-1 w-full rounded-3xl border border-gray-800 hover:border-[#E67E50] group transition-all overflow-hidden shadow-2xl">
                         <div className="bg-[#0A1628] rounded-[22px] p-6 md:p-8 flex justify-between items-center">
                             <div>
                                 <h3 className="text-3xl font-black text-white group-hover:text-[#E67E50] mb-2 transition-colors">{t.name}</h3>
