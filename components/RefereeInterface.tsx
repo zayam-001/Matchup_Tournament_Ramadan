@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { subscribeToTournaments, updateMatchScore, addRefereeTag } from '../services/storage';
+import { subscribeToTournaments, updateMatchScore, addRefereeTag, triggerBroadcastEvent } from '../services/storage';
 import { addPoint } from '../services/scoreEngine';
-import { Match, MatchStatus, Tournament } from '../types';
+import { Match, MatchStatus, Tournament, SponsorTier } from '../types';
 import { Lock, Play, RotateCcw, Award, Check, X, Trophy, ChevronRight, Edit2 } from 'lucide-react';
 
 export const RefereeInterface: React.FC = () => {
@@ -124,6 +124,7 @@ export const RefereeInterface: React.FC = () => {
                 match={selectedMatch} 
                 tournamentName={selectedTournament.name}
                 teams={selectedTournament.teams}
+                sponsors={selectedTournament.sponsors}
                 onClose={() => { setShowBanner(false); setSelectedMatch(null); }} 
             />
         ) : (
@@ -291,7 +292,7 @@ const ScoringControl = ({ match, teams, tournamentId, onUpdate, onBack, onShowBa
             )}
 
             {/* Quick Comments */}
-             <div className="mt-8 mb-20 md:mb-0">
+             <div className="mt-8 mb-8">
                 <h4 className="text-sm font-medium text-gray-400 mb-3 uppercase tracking-wider">Referee Comments</h4>
                 <div className="flex flex-wrap gap-2">
                     {["Excellent Serve", "Great Defense", "Powerful Smash", "Nice Net Play", "Clutch Performance", "Fair Play"].map(tag => (
@@ -301,14 +302,76 @@ const ScoringControl = ({ match, teams, tournamentId, onUpdate, onBack, onShowBa
                     ))}
                 </div>
             </div>
+
+            {/* Broadcast Control Panel */}
+            <div className="mt-8 mb-20 md:mb-0 border-t border-gray-800 pt-8">
+                <h4 className="text-sm font-medium text-indigo-400 mb-3 uppercase tracking-wider flex items-center gap-2">
+                    <div className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></div>
+                    Broadcast Overlays
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button 
+                        onClick={() => triggerBroadcastEvent(tournamentId, match.id, {
+                            id: Date.now().toString(),
+                            type: 'TOMBSTONE',
+                            message: 'MATCH POINT',
+                            timestamp: Date.now(),
+                            duration: 5000
+                        })}
+                        className="px-3 py-3 bg-red-900/20 border border-red-500/30 rounded-lg text-xs md:text-sm text-red-400 hover:bg-red-900/40 font-bold uppercase"
+                    >
+                        Match Point
+                    </button>
+                    <button 
+                        onClick={() => triggerBroadcastEvent(tournamentId, match.id, {
+                            id: Date.now().toString(),
+                            type: 'TOMBSTONE',
+                            message: 'SET POINT',
+                            timestamp: Date.now(),
+                            duration: 5000
+                        })}
+                        className="px-3 py-3 bg-orange-900/20 border border-orange-500/30 rounded-lg text-xs md:text-sm text-orange-400 hover:bg-orange-900/40 font-bold uppercase"
+                    >
+                        Set Point
+                    </button>
+                    <button 
+                        onClick={() => triggerBroadcastEvent(tournamentId, match.id, {
+                            id: Date.now().toString(),
+                            type: 'TOMBSTONE',
+                            message: 'BREAK POINT',
+                            timestamp: Date.now(),
+                            duration: 5000
+                        })}
+                        className="px-3 py-3 bg-yellow-900/20 border border-yellow-500/30 rounded-lg text-xs md:text-sm text-yellow-400 hover:bg-yellow-900/40 font-bold uppercase"
+                    >
+                        Break Point
+                    </button>
+                    <button 
+                        onClick={() => triggerBroadcastEvent(tournamentId, match.id, {
+                            id: Date.now().toString(),
+                            type: 'VIOLATOR',
+                            message: 'NEXT MATCH',
+                            subMessage: 'COMING UP SHORTLY',
+                            timestamp: Date.now(),
+                            duration: 8000
+                        })}
+                        className="px-3 py-3 bg-blue-900/20 border border-blue-500/30 rounded-lg text-xs md:text-sm text-blue-400 hover:bg-blue-900/40 font-bold uppercase"
+                    >
+                        Next Match
+                    </button>
+                </div>
+            </div>
         </div>
     )
 }
 
 // Winner Banner Component
-const WinnerBanner = ({ match, tournamentName, teams, onClose }: any) => {
+const WinnerBanner = ({ match, tournamentName, teams, sponsors, onClose }: any) => {
     const winner = teams.find((t: any) => t.id === match.winnerTeamId);
     
+    // Filter Sponsors (No Silver)
+    const displaySponsors = sponsors?.filter((s: any) => typeof s !== 'string' && s.tier !== SponsorTier.SILVER) || [];
+
     return (
         <div className="fixed inset-0 z-[100] bg-black/95 flex items-center justify-center p-2 md:p-4 overflow-y-auto">
              <div className="w-full max-w-4xl bg-gradient-to-br from-[#0A1628] to-[#1a2c47] border border-[#E67E50] rounded-2xl md:rounded-3xl p-6 md:p-12 relative overflow-hidden text-center shadow-[0_0_100px_rgba(230,126,80,0.2)]">
@@ -361,11 +424,23 @@ const WinnerBanner = ({ match, tournamentName, teams, onClose }: any) => {
                         <div className="text-base md:text-xl text-[#E67E50] font-bold">Score: {match.score.p1Sets} - {match.score.p2Sets}</div>
                     </div>
 
-                    <div className="flex flex-wrap justify-center gap-2">
+                    <div className="flex flex-wrap justify-center gap-2 mb-8">
                          {match.refereeNotes?.map((tag: string) => (
                              <span key={tag} className="px-2 py-1 md:px-3 md:py-1 bg-[#E67E50] text-white text-[10px] md:text-xs font-bold rounded-full uppercase">{tag}</span>
                          ))}
                     </div>
+
+                    {/* Sponsor Footer (Gold/Platinum/Title only) */}
+                    {displaySponsors.length > 0 && (
+                        <div className="border-t border-white/10 pt-4 w-full">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-widest mb-3">Sponsored By</p>
+                            <div className="flex flex-wrap justify-center items-center gap-6">
+                                {displaySponsors.map((s: any, i: number) => (
+                                    <img key={i} src={s.logo} className="h-8 md:h-12 object-contain grayscale opacity-70" />
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
              </div>
              <div className="absolute bottom-4 text-gray-500 text-xs text-center w-full px-4">Screenshot to save</div>

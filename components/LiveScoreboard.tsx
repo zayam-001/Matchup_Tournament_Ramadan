@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { subscribeToTournaments, subscribeToTournament } from '../services/storage';
-import { MatchStatus, Tournament, TournamentFormat, RoundRobinType, Team, Match } from '../types';
+import { MatchStatus, Tournament, TournamentFormat, RoundRobinType, Team, Match, SponsorTier } from '../types';
 import { ChevronRight, Trophy, History, Timer, MapPin, Award } from 'lucide-react';
 
 export const LiveScoreboard: React.FC = () => {
@@ -30,6 +30,14 @@ export const LiveScoreboard: React.FC = () => {
   
   const latestFinished = completedMatches.length > 0 ? completedMatches[0] : null;
 
+  // Process Sponsors
+  const sponsors = activeTournament.sponsors || [];
+  const titleSponsor = sponsors.find((s: any) => typeof s !== 'string' && s.tier === SponsorTier.TITLE);
+  // Gold and Platinum get Live Match placement
+  const premiumSponsors = sponsors.filter((s: any) => typeof s !== 'string' && (s.tier === SponsorTier.GOLD || s.tier === SponsorTier.PLATINUM || s.tier === SponsorTier.TITLE));
+  // All non-title sponsors go to marquee (including legacy strings)
+  const marqueeSponsors = sponsors.filter((s: any) => typeof s === 'string' || s.tier !== SponsorTier.TITLE);
+
   return (
     <div className="pb-20 w-full animate-in fade-in duration-500">
         <style>{`
@@ -43,6 +51,22 @@ export const LiveScoreboard: React.FC = () => {
             }
             .animate-marquee:hover {
                 animation-play-state: paused;
+            }
+            
+            /* Broadcast Animations */
+            @keyframes slideUp {
+                from { transform: translate(-50%, 100%); opacity: 0; }
+                to { transform: translate(-50%, 0); opacity: 1; }
+            }
+            @keyframes slideRight {
+                from { transform: translateX(100%); opacity: 0; }
+                to { transform: translateX(0); opacity: 1; }
+            }
+            .animate-slide-up {
+                animation: slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+            }
+            .animate-slide-in-right {
+                animation: slideRight 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
             }
         `}</style>
 
@@ -64,6 +88,14 @@ export const LiveScoreboard: React.FC = () => {
                  <h1 className="text-4xl font-black text-white tracking-tighter uppercase italic">Match Up</h1>
              </div>
              
+             {/* Title Sponsor Placement - Dominant */}
+             {titleSponsor && (
+                 <div className="mb-4">
+                     <p className="text-gray-500 text-[10px] uppercase tracking-[0.3em] mb-2">Presented By</p>
+                     <img src={titleSponsor.logo} alt="Title Sponsor" className="h-20 md:h-28 object-contain mx-auto drop-shadow-[0_0_15px_rgba(255,255,255,0.3)]" />
+                 </div>
+             )}
+
              <h2 className="text-4xl md:text-6xl font-black text-white mb-6 tracking-tight drop-shadow-2xl">{activeTournament.name}</h2>
              
              <div className="flex flex-wrap justify-center gap-3 mb-8">
@@ -78,12 +110,13 @@ export const LiveScoreboard: React.FC = () => {
                  </div>
              </div>
 
-             {activeTournament.sponsors && activeTournament.sponsors.length > 0 && (
+             {/* Marquee for other sponsors */}
+             {marqueeSponsors.length > 0 && (
                 <div className="w-full max-w-5xl overflow-hidden mb-12 relative border-y border-white/5 py-6 bg-white/[0.02] backdrop-blur-md">
                     <div className="whitespace-nowrap animate-marquee">
-                        {[...activeTournament.sponsors, ...activeTournament.sponsors, ...activeTournament.sponsors].map((src, i) => (
+                        {[...marqueeSponsors, ...marqueeSponsors, ...marqueeSponsors].map((s: any, i) => (
                             <div key={i} className="inline-block mx-12 h-14">
-                                <img src={src} className="h-full w-auto object-contain grayscale opacity-40 hover:grayscale-0 hover:opacity-100 transition-all duration-500" alt="Sponsor" />
+                                <img src={typeof s === 'string' ? s : s.logo} className="h-full w-auto object-contain grayscale opacity-40 hover:grayscale-0 hover:opacity-100 transition-all duration-500" alt="Sponsor" />
                             </div>
                         ))}
                     </div>
@@ -111,7 +144,7 @@ export const LiveScoreboard: React.FC = () => {
                                 <p className="text-gray-600 text-sm">Waiting for the next serve...</p>
                             </div>
                         ) : (
-                            liveMatches.map(m => <LiveCard key={m.id} match={m} teams={activeTournament.teams} />)
+                            liveMatches.map(m => <LiveCard key={m.id} match={m} teams={activeTournament.teams} sponsors={premiumSponsors} />)
                         )}
                     </div>
                 </section>
@@ -136,8 +169,21 @@ export const LiveScoreboard: React.FC = () => {
                 </section>
             </div>
 
-            {/* Right Column: Standings */}
+            {/* Right Column: Standings & Sponsor Block */}
             <div className="space-y-10">
+                {/* Featured Brand Section (Platinum) */}
+                {sponsors.filter((s: any) => typeof s !== 'string' && s.tier === SponsorTier.PLATINUM).length > 0 && (
+                     <section className="bg-gradient-to-br from-[#0F213A] to-[#162a45] rounded-3xl border border-white/5 p-8 text-center shadow-xl relative overflow-hidden">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
+                        <h3 className="text-cyan-400 font-bold text-xs uppercase tracking-[0.2em] mb-6">Featured Partner</h3>
+                        <div className="flex flex-wrap justify-center gap-6">
+                            {sponsors.filter((s: any) => typeof s !== 'string' && s.tier === SponsorTier.PLATINUM).map((s: any, i: number) => (
+                                <img key={i} src={s.logo} className="h-16 object-contain drop-shadow-lg" />
+                            ))}
+                        </div>
+                     </section>
+                )}
+
                 <section>
                     <div className="flex items-center gap-3 mb-6">
                         <div className="w-1.5 h-8 bg-indigo-600 rounded-full"></div>
@@ -153,6 +199,63 @@ export const LiveScoreboard: React.FC = () => {
 };
 
 // --- SUB-COMPONENTS ---
+
+const BroadcastOverlay = ({ event }: { event: any }) => {
+    const [visible, setVisible] = useState(false);
+
+    useEffect(() => {
+        if (!event) {
+            setVisible(false);
+            return;
+        }
+
+        const now = Date.now();
+        const timeSince = now - event.timestamp;
+        if (timeSince < event.duration) {
+            setVisible(true);
+            const timer = setTimeout(() => setVisible(false), event.duration - timeSince);
+            return () => clearTimeout(timer);
+        } else {
+            setVisible(false);
+        }
+    }, [event]);
+
+    if (!visible || !event) return null;
+
+    if (event.type === 'TOMBSTONE') {
+        return (
+            <div className="absolute bottom-0 left-1/2 z-50 animate-slide-up">
+                <div className="bg-gradient-to-t from-black to-gray-900 text-white px-12 py-4 rounded-t-xl border-t-4 border-[#E67E50] shadow-[0_0_50px_rgba(0,0,0,0.8)] flex flex-col items-center min-w-[300px]">
+                    <div className="text-[#E67E50] font-black uppercase tracking-[0.3em] text-xs mb-1">UPDATE</div>
+                    <div className="text-4xl font-black italic tracking-tighter uppercase">{event.message}</div>
+                    {event.subMessage && <div className="text-gray-400 font-bold uppercase tracking-widest text-sm mt-1">{event.subMessage}</div>}
+                </div>
+            </div>
+        );
+    }
+
+    if (event.type === 'VIOLATOR') {
+        return (
+            <div className="absolute top-20 right-0 z-50 animate-slide-in-right">
+                <div className="bg-[#E67E50] text-white pl-8 pr-20 py-6 rounded-l-full shadow-[0_10px_40px_rgba(230,126,80,0.4)] relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-32 h-full bg-black/10 skew-x-12 translate-x-16"></div>
+                    <div className="relative z-10">
+                        <div className="font-black uppercase tracking-[0.2em] text-xs text-red-900 mb-1">ATTENTION</div>
+                        <div className="text-3xl font-black italic tracking-tighter uppercase">{event.message}</div>
+                        {event.subMessage && <div className="text-white/80 font-bold uppercase tracking-widest text-xs mt-1">{event.subMessage}</div>}
+                    </div>
+                </div>
+            </div>
+        );
+    }
+
+    if (event.type === 'SCORE_UPDATE') {
+        // Subtle flash or specific animation handled in LiveCard, but we can add a global effect here if needed
+        return null; 
+    }
+
+    return null;
+};
 
 const TournamentList = ({tournaments, onSelect}: any) => (
     <div className="min-h-screen pt-20 px-4">
@@ -185,12 +288,35 @@ const TournamentList = ({tournaments, onSelect}: any) => (
     </div>
 );
 
-const LiveCard = ({ match, teams }: any) => {
+const LiveCard = ({ match, teams, sponsors }: any) => {
     const t1 = teams.find((t: any) => t.id === match.team1Id);
     const t2 = teams.find((t: any) => t.id === match.team2Id);
 
+    // Pick a random premium sponsor to display on this card if available
+    const featuredSponsor = sponsors && sponsors.length > 0 ? sponsors[Math.floor(Math.random() * sponsors.length)] : null;
+
+    // Score Update Animation
+    const [scoreFlash, setScoreFlash] = useState(false);
+    useEffect(() => {
+        if (match.activeBroadcastEvent?.type === 'SCORE_UPDATE') {
+            const now = Date.now();
+            if (now - match.activeBroadcastEvent.timestamp < 2000) {
+                setScoreFlash(true);
+                const t = setTimeout(() => setScoreFlash(false), 500);
+                return () => clearTimeout(t);
+            }
+        }
+    }, [match.activeBroadcastEvent]);
+
     return (
-        <div className="bg-[#1A2234] rounded-[40px] p-8 md:p-10 border border-white/10 shadow-2xl relative overflow-hidden group">
+        <div className={`bg-[#1A2234] rounded-[40px] p-8 md:p-10 border border-white/10 shadow-2xl relative overflow-hidden group transition-all duration-300 ${scoreFlash ? 'scale-[1.02] ring-4 ring-[#E67E50]/50' : ''}`}>
+             {/* Broadcast Overlay Integration */}
+             {match.activeBroadcastEvent && (
+                 <div className="absolute inset-0 pointer-events-none z-50 flex items-center justify-center">
+                     <BroadcastOverlay event={match.activeBroadcastEvent} />
+                 </div>
+             )}
+
              {/* Dynamic background effect */}
              <div className="absolute top-0 right-0 w-64 h-64 bg-indigo-600/10 blur-[100px] rounded-full -translate-y-1/2 translate-x-1/2"></div>
              
@@ -207,7 +333,7 @@ const LiveCard = ({ match, teams }: any) => {
              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] gap-8 items-center relative z-10">
                  {/* Team 1 */}
                  <div className="flex flex-col items-center md:items-end text-center md:text-right">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border-4 border-indigo-500/30 p-1 mb-4 shadow-xl">
+                    <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border-4 ${match.score.p1Sets > match.score.p2Sets ? 'border-[#E67E50]' : 'border-indigo-500/30'} p-1 mb-4 shadow-xl transition-colors duration-500`}>
                         {t1?.player1?.photoUrl ? <img src={t1.player1.photoUrl} className="w-full h-full rounded-full object-cover" /> : <div className="w-full h-full rounded-full flex items-center justify-center font-black text-gray-500">T1</div>}
                     </div>
                     <h3 className="text-2xl font-black text-white leading-tight mb-2">{t1?.name}</h3>
@@ -215,13 +341,16 @@ const LiveCard = ({ match, teams }: any) => {
                  </div>
 
                  {/* Center Score */}
-                 <div className="flex flex-col items-center px-8 border-x border-white/5">
-                    <div className="text-6xl md:text-8xl font-black text-white tracking-tighter mb-4 flex items-center gap-6">
+                 <div className="flex flex-col items-center px-8 border-x border-white/5 relative">
+                    {/* Scorebug Flash Effect */}
+                    {scoreFlash && <div className="absolute inset-0 bg-[#E67E50]/20 blur-xl animate-pulse rounded-full"></div>}
+                    
+                    <div className="text-6xl md:text-8xl font-black text-white tracking-tighter mb-4 flex items-center gap-6 relative z-10">
                         <span>{match.score.p1Games}</span>
                         <span className="text-white/20">:</span>
                         <span>{match.score.p2Games}</span>
                     </div>
-                    <div className="bg-[#E67E50] text-white px-6 py-2 rounded-xl font-black text-2xl tracking-tight shadow-xl shadow-orange-600/20">
+                    <div className={`bg-[#E67E50] text-white px-6 py-2 rounded-xl font-black text-2xl tracking-tight shadow-xl shadow-orange-600/20 transform transition-transform duration-200 ${scoreFlash ? 'scale-110' : ''}`}>
                         {match.score.p1Points} - {match.score.p2Points}
                     </div>
                     <div className="mt-6 flex gap-2">
@@ -236,13 +365,20 @@ const LiveCard = ({ match, teams }: any) => {
 
                  {/* Team 2 */}
                  <div className="flex flex-col items-center md:items-start text-center md:text-left">
-                    <div className="w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border-4 border-[#E67E50]/30 p-1 mb-4 shadow-xl">
+                    <div className={`w-20 h-20 rounded-full bg-gradient-to-br from-gray-700 to-gray-900 border-4 ${match.score.p2Sets > match.score.p1Sets ? 'border-[#E67E50]' : 'border-[#E67E50]/30'} p-1 mb-4 shadow-xl transition-colors duration-500`}>
                         {t2?.player1?.photoUrl ? <img src={t2.player1.photoUrl} className="w-full h-full rounded-full object-cover" /> : <div className="w-full h-full rounded-full flex items-center justify-center font-black text-gray-500">T2</div>}
                     </div>
                     <h3 className="text-2xl font-black text-white leading-tight mb-2">{t2?.name}</h3>
                     <p className="text-gray-500 text-xs font-bold uppercase tracking-widest">{t2?.player1?.name} & {t2?.player2?.name}</p>
                  </div>
              </div>
+
+             {/* Sponsor On Card */}
+             {featuredSponsor && (
+                 <div className="absolute bottom-4 right-6 opacity-30 grayscale group-hover:grayscale-0 group-hover:opacity-60 transition-all duration-500">
+                     <img src={featuredSponsor.logo} className="h-8" />
+                 </div>
+             )}
         </div>
     )
 };

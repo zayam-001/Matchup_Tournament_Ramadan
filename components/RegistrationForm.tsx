@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { subscribeToTournaments, registerTeam } from '../services/storage';
-import { Tournament } from '../types';
+import { subscribeToTournaments, subscribeToTournament, registerTeam } from '../services/storage';
+import { Tournament, Sponsor, SponsorTier } from '../types';
 import { User, Phone, Mail, Users, CheckCircle, Camera, ChevronRight, MapPin } from 'lucide-react';
 
 export const RegistrationForm: React.FC = () => {
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
   const [selectedTournament, setSelectedTournament] = useState<Tournament | null>(null);
   const [submitted, setSubmitted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -19,9 +20,20 @@ export const RegistrationForm: React.FC = () => {
   const p2FileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
+    // Fetches the list (lightweight, no sponsors)
     const unsubscribe = subscribeToTournaments((data) => setTournaments(data));
     return () => unsubscribe();
   }, []);
+
+  useEffect(() => {
+    // When ID selected, fetch full details including sponsors subcollection
+    if (selectedTournamentId) {
+        const unsubscribe = subscribeToTournament(selectedTournamentId, (data) => setSelectedTournament(data));
+        return () => unsubscribe();
+    } else {
+        setSelectedTournament(null);
+    }
+  }, [selectedTournamentId]);
 
   // Helper to compress and convert image to base64
   const processImage = (file: File, callback: (base64: string) => void) => {
@@ -86,7 +98,7 @@ export const RegistrationForm: React.FC = () => {
     setLoading(false);
   };
 
-  if (!selectedTournament) {
+  if (!selectedTournamentId || !selectedTournament) {
       return (
           <div className="pb-20 max-w-2xl mx-auto">
               <h1 className="text-3xl font-bold text-white mb-6 text-center">Tournament Registration</h1>
@@ -97,7 +109,7 @@ export const RegistrationForm: React.FC = () => {
                   {tournaments.map(t => (
                       <button 
                         key={t.id} 
-                        onClick={() => setSelectedTournament(t)}
+                        onClick={() => setSelectedTournamentId(t.id)}
                         className="w-full bg-[#0F213A] p-6 rounded-xl border border-gray-800 hover:border-[#E67E50] flex justify-between items-center group transition-all text-left"
                       >
                           <div className="flex-1">
@@ -131,7 +143,7 @@ export const RegistrationForm: React.FC = () => {
                 Team <span className="text-[#E67E50]">{formData.teamName}</span> has been submitted for approval. 
             </p>
             <button 
-                onClick={() => { setSubmitted(false); setSelectedTournament(null); setFormData({ teamName: '', p1Name: '', p1Phone: '', p1Email: '', p1Photo: '', p2Name: '', p2Phone: '', p2Email: '', p2Photo: '' })}}
+                onClick={() => { setSubmitted(false); setSelectedTournamentId(null); setSelectedTournament(null); setFormData({ teamName: '', p1Name: '', p1Phone: '', p1Email: '', p1Photo: '', p2Name: '', p2Phone: '', p2Email: '', p2Photo: '' })}}
                 className="mt-8 text-sm text-gray-500 hover:text-white underline"
             >
                 Back to Tournaments
@@ -140,14 +152,30 @@ export const RegistrationForm: React.FC = () => {
     )
   }
 
+  // Handle Legacy Sponsors vs New Sponsors
+  const titleSponsor = selectedTournament.sponsors?.find((s: any) => typeof s !== 'string' && s.tier === SponsorTier.TITLE);
+  const platinumSponsors = selectedTournament.sponsors?.filter((s: any) => typeof s !== 'string' && s.tier === SponsorTier.PLATINUM) || [];
+  const goldSponsors = selectedTournament.sponsors?.filter((s: any) => typeof s !== 'string' && s.tier === SponsorTier.GOLD) || [];
+  const silverSponsors = selectedTournament.sponsors?.filter((s: any) => typeof s !== 'string' && s.tier === SponsorTier.SILVER) || [];
+  // Fallback for legacy
+  const legacySponsors = selectedTournament.sponsors?.filter((s: any) => typeof s === 'string') || [];
+
   return (
     <div className="max-w-2xl mx-auto pb-20">
-      <button onClick={() => setSelectedTournament(null)} className="text-gray-500 hover:text-white mb-6 flex items-center gap-1">
+      <button onClick={() => { setSelectedTournamentId(null); setSelectedTournament(null); }} className="text-gray-500 hover:text-white mb-6 flex items-center gap-1">
           &larr; Choose Different Tournament
       </button>
 
       <div className="text-center mb-8 md:mb-10">
         <h1 className="text-2xl md:text-3xl font-bold text-white mb-2">Join {selectedTournament.name}</h1>
+        
+        {/* Title Sponsor Placement */}
+        {titleSponsor && (
+             <div className="flex justify-center my-4">
+                 <img src={titleSponsor.logo} alt="Title Sponsor" className="h-16 md:h-20 object-contain" />
+             </div>
+        )}
+
         <div className="flex flex-col items-center gap-1">
              <div className="inline-flex items-center gap-1 text-[#E67E50] font-bold uppercase text-sm mb-1">
                  <MapPin size={14} /> {selectedTournament.venue || "Venue TBD"}
@@ -247,6 +275,43 @@ export const RegistrationForm: React.FC = () => {
         >
           {loading ? 'Submitting...' : 'Submit Registration'}
         </button>
+
+        {/* Sponsor Footer Grid */}
+        {(platinumSponsors.length > 0 || goldSponsors.length > 0 || silverSponsors.length > 0 || legacySponsors.length > 0) && (
+            <div className="mt-12 border-t border-gray-800 pt-8">
+                <h4 className="text-center text-gray-500 text-xs uppercase tracking-widest mb-6">Our Partners</h4>
+                
+                {/* Platinum - Large */}
+                {platinumSponsors.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-8 mb-8 items-center">
+                        {platinumSponsors.map((s: any, i: number) => (
+                            <img key={i} src={s.logo} className="h-16 md:h-20 object-contain opacity-90 hover:opacity-100 transition-opacity" />
+                        ))}
+                    </div>
+                )}
+
+                {/* Gold - Medium */}
+                {goldSponsors.length > 0 && (
+                    <div className="flex flex-wrap justify-center gap-6 mb-6 items-center">
+                        {goldSponsors.map((s: any, i: number) => (
+                            <img key={i} src={s.logo} className="h-12 md:h-14 object-contain opacity-80 hover:opacity-100 transition-opacity" />
+                        ))}
+                    </div>
+                )}
+
+                {/* Silver - Small */}
+                {(silverSponsors.length > 0 || legacySponsors.length > 0) && (
+                    <div className="flex flex-wrap justify-center gap-4 items-center">
+                        {silverSponsors.map((s: any, i: number) => (
+                            <img key={i} src={s.logo} className="h-8 md:h-10 object-contain opacity-60 hover:opacity-100 transition-opacity" />
+                        ))}
+                        {legacySponsors.map((s: any, i: number) => (
+                             <img key={`l-${i}`} src={typeof s === 'string' ? s : s.logo} className="h-8 md:h-10 object-contain opacity-60 hover:opacity-100 transition-opacity" />
+                        ))}
+                    </div>
+                )}
+            </div>
+        )}
       </form>
     </div>
   );

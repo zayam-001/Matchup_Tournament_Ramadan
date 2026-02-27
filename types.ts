@@ -30,6 +30,20 @@ export enum RegistrationStatus {
   REJECTED = 'REJECTED'
 }
 
+export enum SponsorTier {
+  SILVER = 'SILVER',
+  GOLD = 'GOLD',
+  PLATINUM = 'PLATINUM',
+  TITLE = 'TITLE'
+}
+
+export interface Sponsor {
+  id: string;
+  name: string;
+  logo: string; // Base64
+  tier: SponsorTier;
+}
+
 export interface Player {
   name: string;
   phone: string;
@@ -98,6 +112,19 @@ export interface Match {
   // Dependency (How do teams get HERE?)
   team1Dependency?: MatchDependency;
   team2Dependency?: MatchDependency;
+
+  // Broadcast State
+  activeBroadcastEvent?: BroadcastEvent;
+}
+
+export interface BroadcastEvent {
+  id: string;
+  type: 'SCORE_UPDATE' | 'TOMBSTONE' | 'VIOLATOR' | 'MATCH_INTRO' | 'MATCH_END';
+  message?: string; // For Tombstone/Violator
+  subMessage?: string;
+  teamId?: string; // If relevant to a specific team
+  duration?: number; // How long to show (ms)
+  timestamp: number;
 }
 
 export interface Tournament {
@@ -118,7 +145,7 @@ export interface Tournament {
   registrationDeadline: string;
   teams: Team[];
   matches: Match[];
-  sponsors?: string[]; // Array of base64 logos
+  sponsors?: Sponsor[]; 
   status: 'DRAFT' | 'ACTIVE' | 'COMPLETED';
 }
 

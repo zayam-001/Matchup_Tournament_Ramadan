@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { TournamentFormat, SkillLevel, Tournament, RegistrationStatus, RoundRobinType, Team, Match } from '../types';
+import { TournamentFormat, SkillLevel, Tournament, RegistrationStatus, RoundRobinType, Team, Match, SponsorTier, Sponsor } from '../types';
 import { createTournament, deleteTournament, updateTournament, subscribeToTournaments, subscribeToTournament, updateTeamStatus, generateSchedule, assignTeamGroup, updateMatchDetails } from '../services/storage';
-import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle, Loader2, Camera, Image as ImageIcon } from 'lucide-react';
+import { Check, X, Calendar, Users, Trophy, PlayCircle, Lock, RefreshCcw, ChevronLeft, Plus, ChevronRight, Grid, ArrowRight, Settings, Edit3, MapPin, DollarSign, Database, Trash2, Mail, Phone, Hash, AlertTriangle, Loader2, Camera, Image as ImageIcon, Crown, Gem, Star, Medal } from 'lucide-react';
 
 export const AdminDashboard: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -105,7 +105,12 @@ export const AdminDashboard: React.FC = () => {
 
   if (isCreating) {
       const editData = editingId ? tournaments.find(t => t.id === editingId) : null;
-      return <CreateTournamentWizard initialData={editData} onCancel={() => { setIsCreating(false); setEditingId(null); }} onCreate={(id) => { setIsCreating(false); setSelectedTournamentId(id); setEditingId(null); }} />;
+      // If editing, we might need to fetch full data (including sponsors) if not already present in list view
+      // But for now, we assume the list has what we need or we deal with it. 
+      // Ideally, we should fetch single tournament details if editingId is set to ensure we have sponsors.
+      // Since subscribeToTournaments (list) doesn't fetch sponsors subcollection, we need to handle this.
+      // We'll wrap the Wizard with a data fetcher or check if we need to fetch.
+      return <CreateTournamentWizardWrapper initialData={editData} tournamentId={editingId} onCancel={() => { setIsCreating(false); setEditingId(null); }} onCreate={(id: string) => { setIsCreating(false); setSelectedTournamentId(id); setEditingId(null); }} />;
   }
 
   if (!selectedTournamentId) {
@@ -176,6 +181,27 @@ export const AdminDashboard: React.FC = () => {
 
 // --- SUB-COMPONENTS ---
 
+// Wrapper to fetch detailed tournament data if editing (needed for sponsors)
+const CreateTournamentWizardWrapper = ({ initialData, tournamentId, onCancel, onCreate }: any) => {
+    const [fullData, setFullData] = useState<Tournament | null>(initialData);
+    const [loading, setLoading] = useState(!!tournamentId);
+
+    useEffect(() => {
+        if (tournamentId) {
+            // Subscribe to get full data including sponsors subcollection
+            const unsubscribe = subscribeToTournament(tournamentId, (data) => {
+                setFullData(data);
+                setLoading(false);
+            });
+            return () => unsubscribe();
+        }
+    }, [tournamentId]);
+
+    if (loading) return <div className="p-8 text-white text-center">Loading tournament details...</div>;
+
+    return <CreateTournamentWizard initialData={fullData} onCancel={onCancel} onCreate={onCreate} />;
+};
+
 const DeleteConfirmationModal = ({ target, onCancel, onConfirm }: any) => {
     if (!target) return null;
     return (
@@ -218,11 +244,22 @@ const TabButton = ({ active, onClick, label, icon }: any) => (
 
 const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
     const [step, setStep] = useState(1);
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    
+    // Sponsor Upload State
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const [newSponsor, setNewSponsor] = useState<{logo: string, tier: SponsorTier}>({ logo: '', tier: SponsorTier.SILVER });
+
+    // Handle legacy string[] sponsors vs new Sponsor[] object
+    const initialSponsors = initialData?.sponsors?.map((s: any) => {
+        if (typeof s === 'string') return { id: Math.random().toString(), name: 'Sponsor', logo: s, tier: SponsorTier.SILVER };
+        return s;
+    }) || [];
+
     const [data, setData] = useState(initialData ? {
         ...initialData,
-        courts: initialData.courts.join(', '),
-        sponsors: initialData.sponsors || []
+        courts: (initialData.courts || []).join(', '),
+        sponsors: initialSponsors
     } : {
         name: '', 
         format: TournamentFormat.SINGLE_ELIMINATION, 
@@ -238,30 +275,90 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
         courts: 'Court 1', 
         registrationDeadline: '',
         prizeMoney: 1000,
-        sponsors: [] as string[]
+        sponsors: [] as Sponsor[]
     });
 
+    // Compression Helper
+    const processImage = (file: File, callback: (base64: string) => void) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const img = new Image();
+            img.onload = () => {
+                const canvas = document.createElement('canvas');
+                const ctx = canvas.getContext('2d');
+                const MAX_WIDTH = 300; // Resize to max 300px width
+                const scaleSize = MAX_WIDTH / img.width;
+                canvas.width = MAX_WIDTH;
+                canvas.height = img.height * scaleSize;
+                
+                if (ctx) {
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                    callback(canvas.toDataURL('image/jpeg', 0.7)); // Compress to 70% quality JPEG
+                }
+            };
+            img.src = e.target?.result as string;
+        };
+        reader.readAsDataURL(file);
+    };
+
     const handleCreateOrUpdate = async () => {
-        const payload = { ...data, courts: data.courts.split(',').map((s: string) => s.trim()) };
-        if (initialData) {
-            await updateTournament(initialData.id, payload);
-            onCreate(initialData.id);
-        } else {
-            const id = await createTournament(payload);
-            onCreate(id);
+        if (isSubmitting) return;
+        setIsSubmitting(true);
+        try {
+            // Safety check for courts input
+            const courtsInput = data.courts || "";
+            const courtsArray = typeof courtsInput === 'string' 
+                ? courtsInput.split(',').map((s: string) => s.trim()).filter((s: string) => s.length > 0)
+                : Array.isArray(courtsInput) ? courtsInput : [];
+                
+            // Ensure at least one court exists
+            const finalCourts = courtsArray.length > 0 ? courtsArray : ["Court 1"];
+
+            const payload = { 
+                ...data, 
+                courts: finalCourts 
+            };
+
+            if (initialData) {
+                await updateTournament(initialData.id, payload);
+                onCreate(initialData.id);
+            } else {
+                const id = await createTournament(payload);
+                onCreate(id);
+            }
+        } catch (err) {
+            console.error("Failed to save tournament:", err);
+            // Improve error message for user
+            if (String(err).includes("longer than")) {
+                alert("Image too large. Please use smaller logos.");
+            } else {
+                alert("An error occurred while saving. Please try again.");
+            }
+        } finally {
+            setIsSubmitting(false);
         }
     };
 
     const handleSponsorUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
         if (e.target.files && e.target.files[0]) {
-            const file = e.target.files[0];
-            const reader = new FileReader();
-            reader.onload = (e) => {
-                const result = e.target?.result as string;
-                setData((prev: any) => ({...prev, sponsors: [...prev.sponsors, result]}));
-            };
-            reader.readAsDataURL(file);
+            processImage(e.target.files[0], (result) => {
+                setNewSponsor(prev => ({ ...prev, logo: result }));
+            });
         }
+    };
+
+    const addSponsor = () => {
+        if (!newSponsor.logo) return;
+        setData((prev: any) => ({
+            ...prev,
+            sponsors: [...prev.sponsors, { 
+                id: Math.random().toString(36).substr(2,9),
+                name: 'Sponsor', // Can add name field if needed later
+                logo: newSponsor.logo,
+                tier: newSponsor.tier 
+            }]
+        }));
+        setNewSponsor({ logo: '', tier: SponsorTier.SILVER }); // Reset
     };
 
     const removeSponsor = (index: number) => {
@@ -269,6 +366,15 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
             ...prev,
             sponsors: prev.sponsors.filter((_: any, i: number) => i !== index)
         }));
+    };
+
+    const getTierIcon = (tier: SponsorTier) => {
+        switch(tier) {
+            case SponsorTier.TITLE: return <Crown size={14} className="text-yellow-400" />;
+            case SponsorTier.PLATINUM: return <Gem size={14} className="text-cyan-400" />;
+            case SponsorTier.GOLD: return <Star size={14} className="text-amber-400" />;
+            case SponsorTier.SILVER: return <Medal size={14} className="text-gray-400" />;
+        }
     };
 
     return (
@@ -352,24 +458,61 @@ const CreateTournamentWizard = ({ initialData, onCancel, onCreate }: any) => {
                      {/* Sponsor Upload Section */}
                      <div className="bg-[#0A1628] p-4 rounded-xl border border-gray-700">
                          <label className="block text-gray-400 text-sm mb-2 font-bold uppercase">Sponsor Logos</label>
-                         <div className="flex flex-wrap gap-2 mb-3">
-                             {data.sponsors.map((src: string, i: number) => (
-                                 <div key={i} className="relative w-16 h-16 bg-white rounded-lg flex items-center justify-center p-1 border border-gray-600">
-                                     <img src={src} className="max-w-full max-h-full object-contain" />
-                                     <button onClick={() => removeSponsor(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600"><X size={12}/></button>
-                                 </div>
-                             ))}
-                             <button onClick={() => fileInputRef.current?.click()} className="w-16 h-16 border border-dashed border-gray-500 rounded-lg flex items-center justify-center text-gray-500 hover:text-white hover:border-[#E67E50] transition-colors">
-                                 <Plus size={24}/>
-                             </button>
+                         
+                         {/* Upload Control */}
+                         <div className="flex gap-2 mb-4">
+                             <div 
+                                onClick={() => fileInputRef.current?.click()}
+                                className="w-20 h-20 border border-dashed border-gray-500 rounded-lg flex items-center justify-center text-gray-500 hover:text-white hover:border-[#E67E50] cursor-pointer bg-black/20"
+                             >
+                                {newSponsor.logo ? <img src={newSponsor.logo} className="w-full h-full object-contain p-1" /> : <Plus size={24}/>}
+                             </div>
+                             <div className="flex-1 space-y-2">
+                                 <select 
+                                    className="w-full bg-[#0F213A] text-white border border-gray-700 rounded p-2 text-sm"
+                                    value={newSponsor.tier}
+                                    onChange={(e) => setNewSponsor({...newSponsor, tier: e.target.value as SponsorTier})}
+                                 >
+                                     <option value={SponsorTier.SILVER}>Silver (80k) - Small, Reg+Bracket</option>
+                                     <option value={SponsorTier.GOLD}>Gold (150k) - Medium, Reg+Match</option>
+                                     <option value={SponsorTier.PLATINUM}>Platinum (300k) - Large, Featured</option>
+                                     <option value={SponsorTier.TITLE}>Title (750k) - Dominant Placement</option>
+                                 </select>
+                                 <button 
+                                    onClick={addSponsor}
+                                    disabled={!newSponsor.logo}
+                                    className="w-full bg-[#E67E50] disabled:opacity-50 text-white text-xs font-bold py-2 rounded hover:bg-orange-600"
+                                 >
+                                     Add Sponsor
+                                 </button>
+                             </div>
                          </div>
                          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleSponsorUpload} />
-                         <p className="text-xs text-gray-500">Upload square or rectangular logos (PNG/JPG).</p>
+
+                         {/* List */}
+                         <div className="grid grid-cols-4 gap-3">
+                             {data.sponsors.map((s: Sponsor, i: number) => (
+                                 <div key={i} className="relative aspect-square bg-white rounded-lg flex flex-col items-center justify-center p-1 border border-gray-600 group">
+                                     <img src={s.logo} className="max-w-full max-h-[70%] object-contain" />
+                                     <div className="absolute top-1 left-1 bg-black/80 rounded px-1.5 py-0.5 text-[8px] font-bold text-white flex items-center gap-1">
+                                         {getTierIcon(s.tier)} {s.tier.charAt(0)}
+                                     </div>
+                                     <button onClick={() => removeSponsor(i)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-0.5 hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity"><X size={12}/></button>
+                                 </div>
+                             ))}
+                         </div>
                      </div>
 
                      <div className="flex gap-4 mt-6">
                          <button onClick={() => setStep(1)} className="flex-1 bg-gray-700 text-white py-3 rounded-lg">Back</button>
-                         <button onClick={handleCreateOrUpdate} className="flex-1 bg-[#E67E50] text-white py-3 rounded-lg font-bold">{initialData ? 'Update' : 'Create'}</button>
+                         <button 
+                            onClick={handleCreateOrUpdate} 
+                            disabled={isSubmitting}
+                            className={`flex-1 bg-[#E67E50] text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2 ${isSubmitting ? 'opacity-70 cursor-wait' : ''}`}
+                        >
+                             {isSubmitting && <Loader2 size={18} className="animate-spin" />}
+                             {initialData ? 'Update' : 'Create'}
+                        </button>
                      </div>
                 </div>
             )}

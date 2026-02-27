@@ -2,8 +2,23 @@ import { ScoreState } from "../types";
 
 const POINTS = ['0', '15', '30', '40'];
 
+// Manual Clone helper to be safe
+const cloneScore = (s: ScoreState): ScoreState => ({
+    p1Points: s.p1Points,
+    p2Points: s.p2Points,
+    p1Games: s.p1Games,
+    p2Games: s.p2Games,
+    p1Sets: s.p1Sets,
+    p2Sets: s.p2Sets,
+    p1SetScores: [...(s.p1SetScores || [])],
+    p2SetScores: [...(s.p2SetScores || [])],
+    currentSet: s.currentSet,
+    isTiebreak: s.isTiebreak,
+    history: [...(s.history || [])]
+});
+
 export const addPoint = (currentScore: ScoreState, team: 1 | 2, playerIdx: 1 | 2): ScoreState => {
-  const nextScore = JSON.parse(JSON.stringify(currentScore)) as ScoreState;
+  const nextScore = cloneScore(currentScore);
   
   // Record history: T<TeamNumber>P<PlayerNumber>
   if (!nextScore.history) nextScore.history = [];
